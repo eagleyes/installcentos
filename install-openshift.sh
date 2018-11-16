@@ -12,6 +12,9 @@ export VERSION=${VERSION:="3.11"}
 export SCRIPT_REPO=${SCRIPT_REPO:="https://raw.githubusercontent.com/gshipley/installcentos/master"}
 export IP=${IP:="$(ip route get 8.8.8.8 | awk '{print $NF; exit}')"}
 export API_PORT=${API_PORT:="8443"}
+export PWD=`pwd`
+export CONTAINERIZED=False
+export HOSTNAME=`hostname -f`
 
 ## Make the script interactive to set the variables
 if [ "$INTERACTIVE" = "true" ]; then
@@ -42,6 +45,11 @@ if [ "$INTERACTIVE" = "true" ]; then
 	read -rp "API Port: ($API_PORT): " choice;
 	if [ "$choice" != "" ] ; then
 		export API_PORT="$choice";
+	fi 
+
+	read -rp "CONTAINERIZED ? (True|False): ($CONTAINERIZED): " choice;
+	if [ "$choice" != "" ] ; then
+		export CONTAINERIZED="$choice";
 	fi 
 
 	echo
@@ -127,35 +135,34 @@ export LOGGING="True"
 
 memory=$(cat /proc/meminfo | grep MemTotal | sed "s/MemTotal:[ ]*\([0-9]*\) kB/\1/")
 
-if [ "$memory" -lt "4194304" ]; then
-	export METRICS="False"
-fi
+#if [ "$memory" -lt "4194304" ]; then
+#	export METRICS="False"
+#fi
 
-if [ "$memory" -lt "16777216" ]; then
-	export LOGGING="False"
-fi
+#if [ "$memory" -lt "16777216" ]; then
+#	export LOGGING="False"
+#fi
 
-curl -o inventory.download $SCRIPT_REPO/inventory.ini
-envsubst < inventory.download > inventory.ini
+envsubst < inventory.ini > inventory.subst
 
-# add proxy in inventory.ini if proxy variables are set
+# add proxy in inventory.subst if proxy variables are set
 if [ ! -z "${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy}}}}" ]; then
-	echo >> inventory.ini
-	echo "openshift_http_proxy=\"${HTTP_PROXY:-${http_proxy:-${HTTPS_PROXY:-${https_proxy}}}}\"" >> inventory.ini
-	echo "openshift_https_proxy=\"${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy}}}}\"" >> inventory.ini
+	echo >> inventory.subst
+	echo "openshift_http_proxy=\"${HTTP_PROXY:-${http_proxy:-${HTTPS_PROXY:-${https_proxy}}}}\"" >> inventory.subst
+	echo "openshift_https_proxy=\"${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy}}}}\"" >> inventory.subst
 	if [ ! -z "${NO_PROXY:-${no_proxy}}" ]; then
 		__no_proxy="${NO_PROXY:-${no_proxy}},${IP},.${DOMAIN}"
 	else
 		__no_proxy="${IP},.${DOMAIN}"
 	fi
-	echo "openshift_no_proxy=\"${__no_proxy}\"" >> inventory.ini
+	echo "openshift_no_proxy=\"${__no_proxy}\"" >> inventory.subst
 fi
 
 mkdir -p /etc/origin/master/
 touch /etc/origin/master/htpasswd
 
-ansible-playbook -i inventory.ini openshift-ansible/playbooks/prerequisites.yml
-ansible-playbook -i inventory.ini openshift-ansible/playbooks/deploy_cluster.yml
+ansible-playbook -i inventory.subst openshift-ansible/playbooks/prerequisites.yml
+ansible-playbook -i inventory.subst openshift-ansible/playbooks/deploy_cluster.yml
 
 htpasswd -b /etc/origin/master/htpasswd ${USERNAME} ${PASSWORD}
 oc adm policy add-cluster-role-to-user cluster-admin ${USERNAME}
